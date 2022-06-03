@@ -6,6 +6,16 @@
 #include <pthread.h>
 #include "vars.h"
 
+#define BILLION 1000000000000L;
+struct thread_args
+{
+    struct timespec* end_service_time;
+    struct timespec* end_wait_time_phone;
+    struct timespec* start_wait_time_cash;
+    struct timespec* end_wait_time_cash;
+    int id;
+};
+
 // Initialize variables
 int bank_account_balance, available_cashiers, available_phones;
 pthread_mutex_t bank_acc_lock, cashier_lock, phones_lock;
@@ -50,9 +60,15 @@ int main(int argc, char** argv)
     }
 
 
+    struct timespec start_service_time[total_customers], end_service_time[total_customers];
+    struct timespec start_wait_time_phone[total_customers], end_wait_time_phone[total_customers];
+    struct timespec start_wait_time_cash[total_customers], end_wait_time_cash[total_customers];
     i = 0;
     for (i = 0; i < total_customers; i++)
     {
+        clock_gettime(CLOCK_REALTIME, &start_service_time[i]);
+        clock_gettime(CLOCK_REALTIME, &start_wait_time_phone[i]);
+
         int wait = 0;
         // If more than one customer has arrived
         if (i > 0)
@@ -65,10 +81,15 @@ int main(int argc, char** argv)
             sleep(wait);
         }
         // DON'T FORGET TO FREE FROM THE MEMORY WHEN FINISHED
-        int* id = malloc(sizeof(int));
-        *id = i + 1;
+        int id = i + 1;
+        struct thread_args* args = malloc(sizeof(struct thread_args));
+        (*args).id = id;
+        (*args).end_service_time = &end_service_time[i];
+        (*args).end_wait_time_phone = &end_wait_time_phone[i];
+        (*args).end_wait_time_cash = &end_wait_time_cash[i];
+        (*args).start_wait_time_cash = &start_wait_time_cash[i];
         // create the thread
-        rc = pthread_create(&threads[i], NULL, &connect_with_tel, id);   
+        rc = pthread_create(&threads[i], NULL, &connect_with_tel, args);   
     }
 
     // Join the threads
@@ -91,6 +112,11 @@ int main(int argc, char** argv)
     printf("Percentage of successful transactions: %lf\n", (double) successful / (double) total_transactions);
     printf("Percentage of unsuccessful seat reservations: %lf\n", (double) unsuccessful_seats / (double) total_transactions);
     printf("Percentage of unsuccessful payments: %lf\n", (double) unsuccessful_pay / (double) total_transactions);
+    double average_wait_time, average_service_time;
+    average_wait_time = calculate_average_time(start_wait_time_phone, end_wait_time_phone, total_customers) + calculate_average_time(start_wait_time_cash, end_wait_time_cash, total_customers);
+    average_service_time = calculate_average_time(start_service_time, end_service_time, total_customers);
+    printf("Average wait time: %lf\n", average_wait_time);
+    printf("Average service time; %lf\n", average_service_time);
     
     // Delete the mutexes and condition variables
     pthread_mutex_destroy(&bank_acc_lock);
@@ -108,9 +134,21 @@ int main(int argc, char** argv)
     return 0;
 }
 
-void* connect_with_tel(void* args)
+double calculate_average_time(struct timespec start[], struct timespec end[], int n)
 {
-    int id = *(int*) args;
+    double total_time = 0;
+
+    for (int i = 0; i < n; i++)
+        total_time += (end[i].tv_sec - start[i].tv_sec) + (end[i].tv_nsec - start[i].tv_nsec) / BILLION;
+
+    return total_time / n;
+}
+
+void* connect_with_tel(void* in)
+{
+    struct thread_args* args = (struct thread_args*)in;
+    int id = args->id;
+    struct timespec* end_wait_time_phone = args->end_wait_time_phone;
 
     // Try to get a mutex (increase and decrease available phones)
     pthread_mutex_lock(&phones_lock);
@@ -184,6 +222,8 @@ void* connect_with_tel(void* args)
         pthread_cond_signal(&phones_cond);
         pthread_mutex_unlock(&phones_lock);
         // Move to payment
+
+        clock_gettime(CLOCK_REALTIME, end_wait_time_phone);
         make_payment(args, zone_selection, info, total_tickets);
     // There are no consecutive seats in a row in that zone
     } else {
@@ -194,27 +234,40 @@ void* connect_with_tel(void* args)
         char zone = (zone_selection == 0 ? 'A' : 'B');
         printf("id(%d): Reservation failed, can't find %d consecutive seats in zone %c\n", id, total_tickets, zone);
         // Free the memory of the id variable that was allocated in the main() before calling connect_with_tel
-        free(args);
+        free(in);
         // Release the resources
         available_phones++;
         pthread_cond_signal(&phones_cond);
         pthread_mutex_unlock(&phones_lock);
         // Exit thread
+        struct timespec* end_service_time = args->end_service_time;
+        struct timespec* start_wait_time_cash = args->start_wait_time_cash;
+        struct timespec* end_wait_time_cash = args->end_wait_time_cash;
+
+        clock_gettime(CLOCK_REALTIME, end_service_time);
+        clock_gettime(CLOCK_REALTIME, end_wait_time_phone);
+        clock_gettime(CLOCK_REALTIME, start_wait_time_cash);
+        clock_gettime(CLOCK_REALTIME, end_wait_time_cash);
         pthread_exit(NULL);
     }
 
     return NULL;
 }
 
-void* make_payment(void* args, int zone_selection, int info[2], int total_tickets)
+void* make_payment(void* in, int zone_selection, int info[2], int total_tickets)
 {
-    int id = *(int*) args;
+    struct thread_args* args = (struct thread_args*)in;
+    int id = args->id;
+    struct timespec* start_wait_time_cash = args->start_wait_time_cash;
+    struct timespec* end_wait_time_cash = args->end_wait_time_cash;
+    clock_gettime(CLOCK_REALTIME, start_wait_time_cash);
     // try to get a lock (increment/decrement cashiers)
     pthread_mutex_lock(&cashier_lock);
     // while there are no available cashiers wait for a signal
     while (available_cashiers == 0)
         pthread_cond_wait(&cashier_cond, &cashier_lock);
     
+    clock_gettime(CLOCK_REALTIME, end_wait_time_cash);
     // Reserve a cashier
     available_cashiers--;
     unsigned int* seed = malloc(sizeof(unsigned int));
@@ -266,8 +319,11 @@ void* make_payment(void* args, int zone_selection, int info[2], int total_ticket
     // release the lock and signal
     pthread_cond_signal(&cashier_cond);
     pthread_mutex_unlock(&cashier_lock);
+
+    struct timespec* end_service_time = args->end_service_time;
+    clock_gettime(CLOCK_REALTIME, end_service_time);
     // free the memory of the variable id that was allocated in the main() function
-    free(args);
+    free(in);
     // exit the thread
     pthread_exit(NULL);
 }

@@ -20,3 +20,4 @@ void* connect_with_tel(void* args);
 int* find_row(int zone, int total_tickets);
 void* make_payment(void* args, int zone_selection, int info[2], int total_tickets);
 bool bernoulli_distr(float p, void* args);
+double calculate_average_time(struct timespec start[], struct timespec end[], int n);
