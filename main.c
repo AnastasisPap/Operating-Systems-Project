@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <time.h>
 #include <unistd.h>
 #include <pthread.h>
 #include "vars.h"
@@ -11,9 +12,10 @@ pthread_mutex_t bank_acc_lock, cashier_lock, phones_lock;
 pthread_cond_t cashier_cond, phones_cond;
 bool theatre_matrix[zone_A_rows + zone_B_rows][seats_per_row];
 pthread_mutex_t matrix_lock;
+int seed_in;
 
-int successful, unsuccessful_seats, unsuccessful_pay = 0;
-pthread_mutex_t successful_m, unsuccessful_seats_m, unsuccessful_pay_m;
+int successful, unsuccessful_seats, unsuccessful_pay, mean_wait_time, mean_service_time = 0;
+pthread_mutex_t successful_m, unsuccessful_seats_m, unsuccessful_pay_m, mean_wait_time_m, mean_service_time_m;
 
 int main(int argc, char** argv)
 {
@@ -21,11 +23,9 @@ int main(int argc, char** argv)
     // Convert the first CLI argument to integer
     int total_customers = atoi(argv[1]);
     // Convert the second CLI argument to float 
-    float seed_in = atof(argv[2]);
+    seed_in = atoi(argv[2]);
     // Reserve memory for the threads
     pthread_t threads[total_customers]; 
-    // Random seed
-    srand(time(NULL));
 
     // Initialize Mutexes
     pthread_mutex_init(&bank_acc_lock, NULL);
@@ -35,6 +35,8 @@ int main(int argc, char** argv)
     pthread_mutex_init(&successful_m, NULL);
     pthread_mutex_init(&unsuccessful_pay_m, NULL);
     pthread_mutex_init(&unsuccessful_seats_m, NULL);
+    pthread_mutex_init(&mean_wait_time_m, NULL);
+    pthread_mutex_init(&mean_service_time_m, NULL);
     pthread_cond_init(&cashier_cond, NULL);
     pthread_cond_init(&phones_cond, NULL);
     available_cashiers = n_cash;
@@ -56,7 +58,10 @@ int main(int argc, char** argv)
         if (i > 0)
         {
             // Wait for a random time in a given interval
-            wait = (rand() % (t_reshigh - t_reslow + 1)) + t_reslow;
+            unsigned int* seed = malloc(sizeof(unsigned int));
+            *seed = i + seed_in;
+            wait = (rand_r(seed) % (t_reshigh - t_reslow + 1)) + t_reslow;
+            free(seed);
             sleep(wait);
         }
         // DON'T FORGET TO FREE FROM THE MEMORY WHEN FINISHED
@@ -95,6 +100,8 @@ int main(int argc, char** argv)
     pthread_mutex_destroy(&successful_m);
     pthread_mutex_destroy(&unsuccessful_pay_m);
     pthread_mutex_destroy(&unsuccessful_seats_m);
+    pthread_mutex_destroy(&mean_wait_time_m);
+    pthread_mutex_destroy(&mean_service_time_m);
     pthread_cond_destroy(&cashier_cond);
     pthread_cond_destroy(&phones_cond);
 
@@ -115,9 +122,11 @@ void* connect_with_tel(void* args)
     // Decrement the available phones
     available_phones--;
     // zone_sel = 0 -> Zone A, zone_sel = 1 -> Zone B
-    int zone_selection = bernoulli_distr(1 - prob_zone_A);
+    unsigned int* seed = malloc(sizeof(unsigned int));
+    *seed = seed_in + id;
+    int zone_selection = bernoulli_distr(1 - prob_zone_A, seed);
     // Select a random amount of total tickets
-    int total_tickets = (rand() % (n_seathigh - n_seatlow + 1)) + n_seatlow;
+    int total_tickets = (rand_r(seed) % (n_seathigh - n_seatlow + 1)) + n_seatlow;
 
     // info[] = {row of that zone, seat starting from the left of that row}, {-1, -1} = no available
     int info[] = {-1, -1};
@@ -125,7 +134,8 @@ void* connect_with_tel(void* args)
     int end_row = (zone_selection == 0 ? zone_A_rows : zone_A_rows + zone_B_rows);
 
     // The telephone agents require a random amount of time to find the seats
-    int search_time = (rand() % (t_seathigh - t_seatlow + 1)) + t_seatlow;
+    int search_time = (rand_r(seed) % (t_seathigh - t_seatlow + 1)) + t_seatlow;
+    free(seed);
     // Unlock the mutex while "searching"
     pthread_mutex_unlock(&phones_lock);
     sleep(search_time);
@@ -163,6 +173,7 @@ void* connect_with_tel(void* args)
     if (info[0] > -1) {
         // Lock matrix mutex to update its values
         pthread_mutex_lock(&matrix_lock);
+        // Reserve the seats
         // False = reserved seats
         for (int i = info[1]; i < total_tickets + info[1]; i++) {
             theatre_matrix[info[0]][i] = false;
@@ -206,15 +217,18 @@ void* make_payment(void* args, int zone_selection, int info[2], int total_ticket
     
     // Reserve a cashier
     available_cashiers--;
+    unsigned int* seed = malloc(sizeof(unsigned int));
+    *seed = seed_in + id;
     // The cashier requires a random amount of time to try the payment
-    int wait_time = (rand() % (t_cashhigh - t_cashlow + 1)) + t_cashlow;
+    int wait_time = (rand_r(seed) % (t_cashhigh - t_cashlow + 1)) + t_cashlow;
     // Unlock the mutex while waiting
     pthread_mutex_unlock(&cashier_lock);
     sleep(wait_time);
     pthread_mutex_lock(&cashier_lock);
 
     // payment_success = 1 => payment is successful, otherwise failed
-    int payment_success = bernoulli_distr(p_payment_success);
+    int payment_success = bernoulli_distr(p_payment_success, seed);
+    free(seed);
     if (payment_success == 1) {
         // reserve lock to update the statistics variable
         pthread_mutex_lock(&successful_m);
@@ -259,10 +273,11 @@ void* make_payment(void* args, int zone_selection, int info[2], int total_ticket
 }
 
 // Returns 1 with a probability of p and 0 with a probability of 1 - p
-bool bernoulli_distr(float p)
+bool bernoulli_distr(float p, void* args)
 {
+    unsigned int* random_res = (unsigned int*) args;
     // Uni = random Uniform[0, 1] (we divide with RAND_MAX)
-    double uni = (double) rand() / RAND_MAX;
+    double uni = (double) rand_r(random_res) / RAND_MAX;
 
     if (uni < p) return true;
     return false;
