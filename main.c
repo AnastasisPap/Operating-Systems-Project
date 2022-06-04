@@ -4,7 +4,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
-#include "vars.h"
+#include "main.h"
 
 #define BILLION 1000000000000L;
 struct thread_args
@@ -63,6 +63,9 @@ int main(int argc, char** argv)
     struct timespec start_service_time[total_customers], end_service_time[total_customers];
     struct timespec start_wait_time_phone[total_customers], end_wait_time_phone[total_customers];
     struct timespec start_wait_time_cash[total_customers], end_wait_time_cash[total_customers];
+    struct timespec start_program, end_program;
+    clock_gettime(CLOCK_REALTIME, &start_program);
+
     i = 0;
     for (i = 0; i < total_customers; i++)
     {
@@ -70,16 +73,6 @@ int main(int argc, char** argv)
         clock_gettime(CLOCK_REALTIME, &start_wait_time_phone[i]);
 
         int wait = 0;
-        // If more than one customer has arrived
-        if (i > 0)
-        {
-            // Wait for a random time in a given interval
-            unsigned int* seed = malloc(sizeof(unsigned int));
-            *seed = i + seed_in;
-            wait = (rand_r(seed) % (t_reshigh - t_reslow + 1)) + t_reslow;
-            free(seed);
-            sleep(wait);
-        }
         // DON'T FORGET TO FREE FROM THE MEMORY WHEN FINISHED
         int id = i + 1;
         struct thread_args* args = malloc(sizeof(struct thread_args));
@@ -90,6 +83,12 @@ int main(int argc, char** argv)
         (*args).start_wait_time_cash = &start_wait_time_cash[i];
         // create the thread
         rc = pthread_create(&threads[i], NULL, &connect_with_tel, args);   
+        // Wait for a random time in a given interval
+        unsigned int* seed = malloc(sizeof(unsigned int));
+        *seed = i + seed_in;
+        wait = (rand_r(seed) % (t_reshigh - t_reslow + 1)) + t_reslow;
+        free(seed);
+        sleep(wait);
     }
 
     // Join the threads
@@ -117,6 +116,9 @@ int main(int argc, char** argv)
     average_service_time = calculate_average_time(start_service_time, end_service_time, total_customers);
     printf("Average wait time: %lf\n", average_wait_time);
     printf("Average service time; %lf\n", average_service_time);
+    clock_gettime(CLOCK_REALTIME, &end_program);
+    double total_time = (end_program.tv_sec - start_program.tv_sec) + (end_program.tv_nsec - start_program.tv_nsec) / BILLION;
+    printf("Program execution total time: %lf\n", total_time);
     
     // Delete the mutexes and condition variables
     pthread_mutex_destroy(&bank_acc_lock);
@@ -159,6 +161,8 @@ void* connect_with_tel(void* in)
 
     // Decrement the available phones
     available_phones--;
+    // stop the time (connected with phone)
+    clock_gettime(CLOCK_REALTIME, end_wait_time_phone);
     // zone_sel = 0 -> Zone A, zone_sel = 1 -> Zone B
     unsigned int* seed = malloc(sizeof(unsigned int));
     *seed = seed_in + id;
@@ -222,8 +226,6 @@ void* connect_with_tel(void* in)
         pthread_cond_signal(&phones_cond);
         pthread_mutex_unlock(&phones_lock);
         // Move to payment
-
-        clock_gettime(CLOCK_REALTIME, end_wait_time_phone);
         make_payment(args, zone_selection, info, total_tickets);
     // There are no consecutive seats in a row in that zone
     } else {
@@ -243,7 +245,6 @@ void* connect_with_tel(void* in)
         struct timespec* end_wait_time_cash = args->end_wait_time_cash;
 
         clock_gettime(CLOCK_REALTIME, end_service_time);
-        clock_gettime(CLOCK_REALTIME, end_wait_time_phone);
         clock_gettime(CLOCK_REALTIME, start_wait_time_cash);
         clock_gettime(CLOCK_REALTIME, end_wait_time_cash);
         // Free the memory of the id variable that was allocated in the main() before calling connect_with_tel
