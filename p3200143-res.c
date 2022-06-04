@@ -93,7 +93,7 @@ int main(int argc, char** argv)
 
     // Join the threads
     for (i = 0; i < total_customers; i++)
-        if (pthread_join(threads[i], NULL) == 0) printf("Error joining thread");
+        if (pthread_join(threads[i], NULL) != 0) printf("Error joining thread");
 
     // Print the theatre layout
     printf("Theatre plan (0 = seat not reserved, 1 = seat reserved):\n\n");
