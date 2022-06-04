@@ -312,7 +312,7 @@ void* make_payment(void* in, int zone_selection, int info[2], int total_tickets)
         if (pthread_mutex_lock(&matrix_lock) != 0) printf("error getting lock\n");
         for (int i = info[1]; i < total_tickets + info[1]; i++)
             theatre_matrix[info[0]][i] = true;
-        pthread_mutex_unlock(&matrix_lock);
+        if (pthread_mutex_unlock(&matrix_lock) != 0) printf("error unlocking\n");
         // release resources
         available_cashiers++;
     }
