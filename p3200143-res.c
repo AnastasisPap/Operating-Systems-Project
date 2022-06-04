@@ -4,7 +4,7 @@
 #include <time.h>
 #include <unistd.h>
 #include <pthread.h>
-#include "main.h"
+#include "p3200143-res.h"
 
 #define BILLION 1000000000000L;
 struct thread_args
