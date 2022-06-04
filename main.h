@@ -1,8 +1,9 @@
+#define zone_A_rows 10
+#define zone_B_rows 20
+#define total_rows (zone_A_rows + zone_B_rows)
+#define seats_per_row 10
 const int n_cash = 2;
 const int n_tel = 3;
-const int seats_per_row = 10;
-const int zone_A_rows = 10;
-const int zone_B_rows = 20;
 const int zone_A_cost = 30;
 const int zone_B_cost = 20;
 const int n_seatlow = 1;

@@ -20,7 +20,7 @@ struct thread_args
 int bank_account_balance, available_cashiers, available_phones;
 pthread_mutex_t bank_acc_lock, cashier_lock, phones_lock;
 pthread_cond_t cashier_cond, phones_cond;
-bool theatre_matrix[zone_A_rows + zone_B_rows][seats_per_row];
+bool theatre_matrix[total_rows][seats_per_row];
 pthread_mutex_t matrix_lock;
 int seed_in;
 
