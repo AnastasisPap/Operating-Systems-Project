@@ -233,8 +233,6 @@ void* connect_with_tel(void* in)
         pthread_mutex_unlock(&unsuccessful_seats_m);
         char zone = (zone_selection == 0 ? 'A' : 'B');
         printf("id(%d): Reservation failed, can't find %d consecutive seats in zone %c\n", id, total_tickets, zone);
-        // Free the memory of the id variable that was allocated in the main() before calling connect_with_tel
-        free(in);
         // Release the resources
         available_phones++;
         pthread_cond_signal(&phones_cond);
@@ -248,6 +246,8 @@ void* connect_with_tel(void* in)
         clock_gettime(CLOCK_REALTIME, end_wait_time_phone);
         clock_gettime(CLOCK_REALTIME, start_wait_time_cash);
         clock_gettime(CLOCK_REALTIME, end_wait_time_cash);
+        // Free the memory of the id variable that was allocated in the main() before calling connect_with_tel
+        free(in);
         pthread_exit(NULL);
     }
 
